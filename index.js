@@ -8,6 +8,8 @@ const DEFAULTS = {
     insertMode: 'system',         // system | user
     autoGenerate: true,
     floatMode: false,
+    minimized: false,
+    floatX: null, floatY: null, launcherX: null, launcherY: null,
     note: '',
 };
 const settings = extension_settings[ID] ??= {};
@@ -308,7 +310,7 @@ function buildUI() {
       <label>快速选择<select id="chron-preset" class="text_pole"><option value="">— 自定义 —</option><option value="1小时后">1 小时后</option><option value="半天后">半天后</option><option value="1天后">1 天后</option><option value="3天后">3 天后</option><option value="1周后">1 周后</option><option value="1个月后">1 个月后</option><option value="1小时前">1 小时前</option><option value="1天前">1 天前</option></select></label>
       <label>或直接输入<input id="chron-input" class="text_pole" type="text" placeholder="如：一天后 / 3 小时 / 明天早上"></label>
       <label>补充说明（可选）<input id="chron-note" class="text_pole" type="text" placeholder="如：这段时间她在出差"></label>
-      <div class="chron-actions"><button id="chron-go" class="menu_button chron-primary" type="button"><i class="fa-solid fa-hourglass-half"></i>推进剧情</button><button id="chron-undo" class="menu_button" type="button" title="把剧情时间退回这次推进之前"><i class="fa-solid fa-rotate-left"></i>撤销上次</button><button id="chron-float-toggle" class="menu_button" type="button"><i class="fa-solid fa-window-restore"></i><span class="chron-btn-label">浮窗显示</span></button></div>
+      <div class="chron-actions"><button id="chron-go" class="menu_button chron-primary" type="button"><i class="fa-solid fa-hourglass-half"></i>推进剧情</button><button id="chron-undo" class="menu_button" type="button" title="把剧情时间退回这次推进之前"><i class="fa-solid fa-rotate-left"></i>撤销上次</button><button id="chron-float-toggle" class="menu_button" type="button"><i class="fa-solid fa-window-restore"></i><span class="chron-btn-label">浮窗显示</span></button><button id="chron-minimize" class="menu_button" type="button" title="收起成圆形悬浮球"><i class="fa-solid fa-circle-dot"></i>最小化为悬浮球</button></div>
       </section>
 
       <section class="chron-card"><h4><i class="fa-solid fa-wand-magic-sparkles"></i>推进后生成</h4>
@@ -371,13 +373,147 @@ function buildUI() {
         renderClock();
         toast(`时钟已设为 ${clockLabel(currentClock())}`);
     });
-    $('#chron-float-toggle').on('click', () => { settings.floatMode = !settings.floatMode; saveSettingsDebounced(); applyPanelMode(); });
-    launcher.addEventListener('click', () => { settings.floatMode = true; saveSettingsDebounced(); applyPanelMode(); });
+    $('#chron-float-toggle').on('click', () => {
+        settings.floatMode = !settings.floatMode;
+        settings.minimized = false;
+        saveSettingsDebounced();
+        applyPanelMode();
+    });
+    $('#chron-minimize').on('click', () => {
+        settings.floatMode = true;
+        settings.minimized = true;
+        saveSettingsDebounced();
+        applyPanelMode();
+    });
+    launcher.addEventListener('click', () => {
+        settings.floatMode = true;
+        settings.minimized = false;
+        saveSettingsDebounced();
+        applyPanelMode();
+    });
+    // 浮窗按住标题栏拖动，悬浮球直接按住拖动；松手后的位置会记住，下次打开还在原处
+    const titleBar = panel.querySelector('.inline-drawer-header');
+    const titleGrip = el('i', 'fa-solid fa-grip-lines chron-grip');
+    titleGrip.title = '按住标题栏可拖动浮窗（双击复位）';
+    titleBar?.querySelector('.inline-drawer-icon')?.before(titleGrip);
+    titleBar?.addEventListener('dblclick', () => {
+        settings.floatX = null;
+        settings.floatY = null;
+        applyPanelMode();
+    });
+    attachDrag(titleBar, () => (settings.floatMode && !settings.minimized ? document.getElementById('chron-float') : null), setFloatPosition);
+    attachDrag(launcher, () => (settings.minimized ? document.getElementById('chron-launcher') : null), setLauncherPosition);
+    // 浏览器窗口尺寸变化后把浮窗/球拉回可见范围
+    window.addEventListener('resize', () => {
+        if (!settings.floatMode) return;
+        if (settings.minimized) {
+            if (Number.isFinite(settings.launcherX)) setLauncherPosition(settings.launcherX, settings.launcherY, true);
+        } else if (Number.isFinite(settings.floatX)) {
+            setFloatPosition(settings.floatX, settings.floatY, true);
+        }
+    });
     applyPanelMode();
     renderClock();
     return panel;
 }
 
+/* ============================================================
+   浮窗 / 悬浮球拖动
+   位置可以随便放，但至少留一点在视口里，免得拖出去就再也找不回来。
+   ============================================================ */
+
+function clampToViewport(x, y, width, height, keep = 60) {
+    const maxX = Math.max(0, window.innerWidth - keep);
+    const maxY = Math.max(0, window.innerHeight - keep);
+    const minX = Math.min(0, keep - width);
+    const minY = Math.min(0, keep - height);
+    return [
+        Math.round(Math.min(Math.max(x, minX), maxX)),
+        Math.round(Math.min(Math.max(y, minY), maxY)),
+    ];
+}
+function setFloatPosition(x, y, persist = false) {
+    const floatBox = document.getElementById('chron-float');
+    if (!floatBox) return;
+    const rect = floatBox.getBoundingClientRect();
+    const [nx, ny] = clampToViewport(x, y, rect.width || 420, rect.height || 420);
+    floatBox.style.left = `${nx}px`;
+    floatBox.style.top = `${ny}px`;
+    floatBox.style.right = 'auto';
+    if (persist) { settings.floatX = nx; settings.floatY = ny; saveSettingsDebounced(); }
+}
+function setLauncherPosition(x, y, persist = false) {
+    const launcher = document.getElementById('chron-launcher');
+    if (!launcher) return;
+    const size = launcher.offsetWidth || 58;
+    const [nx, ny] = clampToViewport(x, y, size, size, 30);
+    launcher.style.left = `${nx}px`;
+    launcher.style.top = `${ny}px`;
+    launcher.style.right = 'auto';
+    launcher.style.bottom = 'auto';
+    if (persist) { settings.launcherX = nx; settings.launcherY = ny; saveSettingsDebounced(); }
+}
+// 拖动结束后紧跟的那一次 click 要吞掉，否则松手时会顺手把浮窗重新打开
+let suppressNextClick = false;
+window.addEventListener('click', event => {
+    if (!suppressNextClick) return;
+    suppressNextClick = false;
+    event.stopPropagation();
+    event.preventDefault();
+}, true);
+function attachDrag(handle, target, apply) {
+    if (!handle) return;
+    // 把手本身可能就是按钮（悬浮球就是）。这种情况下不能再按「点到按钮就跳过」处理，
+    // 否则球会把事件判给自己，永远拖不动。
+    const handleIsControl = handle.matches('button, a, input, select, textarea');
+    let dragging = false;
+    let moved = false;
+    let fromX = 0;
+    let fromY = 0;
+    let startLeft = 0;
+    let startTop = 0;
+    let lastLeft = 0;
+    let lastTop = 0;
+    handle.addEventListener('pointerdown', event => {
+        if (event.pointerType === 'mouse' && event.button !== 0) return;
+        if (!handleIsControl && event.target.closest('button, a, input, select, textarea')) return;
+        const node = target();
+        if (!node) return;
+        const rect = node.getBoundingClientRect();
+        dragging = true;
+        moved = false;
+        fromX = event.clientX;
+        fromY = event.clientY;
+        startLeft = rect.left;
+        startTop = rect.top;
+        handle.classList.add('chron-dragging');
+        try { handle.setPointerCapture(event.pointerId); } catch { /* 忽略不支持的浏览器 */ }
+    });
+    handle.addEventListener('pointermove', event => {
+        if (!dragging) return;
+        const dx = event.clientX - fromX;
+        const dy = event.clientY - fromY;
+        if (!moved && Math.abs(dx) + Math.abs(dy) > 4) moved = true;
+        lastLeft = startLeft + dx;
+        lastTop = startTop + dy;
+        apply(lastLeft, lastTop, false);
+    });
+    const stop = event => {
+        if (!dragging) return;
+        dragging = false;
+        handle.classList.remove('chron-dragging');
+        try { handle.releasePointerCapture(event.pointerId); } catch { /* 忽略 */ }
+        // 落盘用拖动过程中算出的目标值，不要再读一次 rect：
+        // 入场动画等 transform 会让 rect 与 style 差十几像素，读 rect 会在松手瞬间跳一下
+        if (moved) apply(lastLeft, lastTop, true);
+        suppressNextClick = moved;
+        if (moved) setTimeout(() => { suppressNextClick = false; }, 400);
+    };
+    handle.addEventListener('pointerup', stop);
+    handle.addEventListener('pointercancel', stop);
+}
+
+// 三种状态：收在设置页 / 浮窗 / 最小化成悬浮球
 function applyPanelMode() {
     const panel = document.getElementById('chron-panel');
     const floatBox = document.getElementById('chron-float');
@@ -393,8 +529,14 @@ function applyPanelMode() {
         return;
     }
     floatBox.querySelector('.chron-float-body').append(panel);
-    floatBox.classList.remove('chron-hidden');
-    launcher.classList.add('chron-hidden');
+    const minimized = Boolean(settings.minimized);
+    floatBox.classList.toggle('chron-hidden', minimized);
+    launcher.classList.toggle('chron-hidden', !minimized);
+    if (minimized) {
+        if (Number.isFinite(settings.launcherX) && Number.isFinite(settings.launcherY)) setLauncherPosition(settings.launcherX, settings.launcherY, false);
+        return;
+    }
+    if (Number.isFinite(settings.floatX) && Number.isFinite(settings.floatY)) setFloatPosition(settings.floatX, settings.floatY, false);
     const content = panel.querySelector('.inline-drawer-content');
     if (content && window.getComputedStyle(content).display === 'none') $(content).slideDown();
 }
