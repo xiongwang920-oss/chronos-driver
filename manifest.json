@@ -1,0 +1,11 @@
+{
+  "name": "时间推进器",
+  "display_name": "时间推进器",
+  "version": "1.0.0",
+  "author": "Codex",
+  "description": "为 SillyTavern 提供剧情时间推进：维护当前剧情时间，按「一天后」这类输入跳转，并生成过渡与新场景。",
+  "loading_order": 100,
+  "js": "index.js",
+  "css": "style.css",
+  "auto_update": false
+}
