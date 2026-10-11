@@ -29,6 +29,8 @@
 1. 把整个 `时间推进器` 文件夹放进 `SillyTavern/public/scripts/extensions/third-party/`，形成 `.../third-party/时间推进器/manifest.json`。
 2. 重启 SillyTavern 或刷新浏览器，在扩展面板启用「时间推进器」。
 
+也可以用酒馆的 **URL 安装**，直接填 `https://github.com/xiongwang920-oss/chronos-driver`。`manifest.json` 里开了 `auto_update: true`，这种方式装的话以后会自动更新（要求机器能访问 GitHub）。
+
 ## 用法
 
 **面板**：在「推进时间」里选一个快捷项，或者直接输入，点「推进剧情」。
